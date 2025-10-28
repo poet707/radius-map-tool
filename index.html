@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>Radius-Based City Verification Map Tool</title>
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<style>
+		body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background: #f7f7f8; color: #111; }
+		header { padding: 16px 20px; background: #fff; border-bottom: 1px solid #e6e6e6; position: sticky; top: 0; z-index: 2; }
+		h1 { font-size: 18px; margin: 0; }
+		main { display: grid; grid-template-columns: 360px 1fr; gap: 16px; padding: 16px; }
+		@media (max-width: 980px) { main { grid-template-columns: 1fr; } }
+		.card { background: #fff; border: 1px solid #e6e6e6; border-radius: 10px; padding: 12px; }
+		.field { margin-bottom: 12px; }
+		label { display: block; font-size: 12px; color: #555; margin-bottom: 6px; }
+		input[type="text"], select, textarea {
+			width: 100%; padding: 10px; border: 1px solid #dcdcdc; border-radius: 8px; font-size: 14px; box-sizing: border-box; background: #fff;
+		}
+		textarea { min-height: 120px; resize: vertical; }
+		.actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+		button {
+			appearance: none; border: 1px solid #1f64ff; background: #1f64ff; color: #fff; padding: 10px 14px;
+			border-radius: 8px; font-weight: 600; cursor: pointer;
+		}
+		button.secondary { background: #fff; color: #1f64ff; }
+		.subtle { font-size: 12px; color: #666; }
+		#map { width: 100%; height: 70vh; min-height: 420px; border-radius: 10px; }
+		.badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; border: 1px solid #e2e2e2; }
+		.badge.ok { background: #e9f9ee; color: #0f7b3e; border-color: #bfe8cf; }
+		.badge.no { background: #fdeceb; color: #a3312e; border-color: #f1c6c3; }
+		table { width: 100%; border-collapse: collapse; font-size: 14px; }
+		th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; }
+		th { font-size: 12px; color: #555; text-transform: uppercase; letter-spacing: .02em; }
+		tfoot td { font-weight: 600; }
+		.row-error { color: #a3312e; font-size: 12px; }
+		.spinner { width: 16px; height: 16px; border: 2px solid #e0e7ff; border-top-color: #1f64ff; border-radius: 50%; animation: spin 0.8s linear infinite; display: inline-block; vertical-align: -3px; }
+		@keyframes spin { to { transform: rotate(360deg); } }
+	</style>
+</head>
+<body>
+	<header><h1>Radius-Based City Verification Map Tool</h1></header>
+	<main>
+		<section class="card">
+			<div class="field">
+				<label for="origin">Starting address</label>
+				<input id="origin" type="text" placeholder="e.g., 600 Grant St, Pittsburgh, PA">
+			</div>
+			<div class="field">
+				<label for="cities">Cities to check (one per line)</label>
+				<textarea id="cities" placeholder="e.g.
+Dormont, PA
+Mt. Lebanon, PA
+Coraopolis, PA
+Wexford, PA"></textarea>
+				<div class="subtle">Tips: Include state for best accuracy. You can paste a CSV column.</div>
+			</div>
+			<div class="field">
+				<label for="radius">Radius (miles)</label>
+				<select id="radius">
+					<option value="5">5 miles</option>
+					<option value="10" selected>10 miles</option>
+					<option value="15">15 miles</option>
+					<option value="20">20 miles</option>
+					<option value="30">30 miles</option>
+				</select>
+			</div>
+			<div class="actions">
+				<button id="runBtn">Verify and Map</button>
+				<button id="clearBtn" class="secondary" type="button">Clear</button>
+				<span id="status" class="subtle"></span>
+			</div>
+			<div class="field" style="margin-top:12px">
+				<span class="badge" id="summaryBadge">Ready</span>
+			</div>
+		</section>
+
+		<section class="card">
+			<div id="map"></div>
+		</section>
+
+		<section class="card" style="grid-column: 1 / -1;">
+			<h3 style="margin: 4px 0 10px;">Results</h3>
+			<div class="subtle" id="resultsSummary">No results yet.</div>
+			<div style="overflow:auto; margin-top:8px;">
+				<table id="resultsTable" aria-label="Verification results">
+					<thead>
+						<tr>
+							<th>City</th>
+							<th>Resolved Address</th>
+							<th>Distance (mi)</th>
+							<th>Within Radius?</th>
+						</tr>
+					</thead>
+					<tbody></tbody>
+					<tfoot>
+						<tr><td colspan="4" id="totalsCell"></td></tr>
+					</tfoot>
+				</table>
+			</div>
+		</section>
+	</main>
+
+	<script>
+		// Math helpers
+		const toRad = d => d * Math.PI / 180;
+		function haversineMiles(lat1, lon1, lat2, lon2) {
+			const R = 3958.7613; // Earth radius in miles
+			const dLat = toRad(lat2 - lat1);
+			const dLon = toRad(lon2 - lon1);
+			const a = Math.sin(dLat/2) ** 2 +
+				Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon/2) ** 2;
+			const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+			return R * c;
+		}
+
+		// DOM
+		const originEl = document.getElementById('origin');
+		const citiesEl = document.getElementById('cities');
+		const radiusEl = document.getElementById('radius');
+		const runBtn = document.getElementById('runBtn');
+		const clearBtn = document.getElementById('clearBtn');
+		const statusEl = document.getElementById('status');
+		const resultsSummaryEl = document.getElementById('resultsSummary');
+		const resultsTableBody = document.querySelector('#resultsTable tbody');
+		const totalsCell = document.getElementById('totalsCell');
+		const summaryBadge = document.getElementById('summaryBadge');
+
+		let map, originMarker, radiusCircle;
+		let markers = [];
+
+		function initMap() {
+			map = new google.maps.Map(document.getElementById('map'), {
+				center: { lat: 39.8283, lng: -98.5795 },
+				zoom: 4,
+				mapTypeControl: false,
+				streetViewControl: false
+			});
+		}
+		window.initMap = initMap;
+
+		function setStatus(msg, spinning = false) {
+			statusEl.innerHTML = spinning ? '<span class="spinner"></span> ' + msg : msg;
+		}
+
+		function clearMap() {
+			if (originMarker) { originMarker.setMap(null); originMarker = null; }
+			if (radiusCircle) { radiusCircle.setMap(null); radiusCircle = null; }
+			markers.forEach(m => m.setMap(null));
+			markers = [];
+		}
+
+		function clearResults() {
+			resultsTableBody.innerHTML = '';
+			resultsSummaryEl.textContent = 'No results yet.';
+			totalsCell.textContent = '';
+			summaryBadge.textContent = 'Ready';
+			summaryBadge.className = 'badge';
+		}
+
+		clearBtn.addEventListener('click', () => {
+			originEl.value = '';
+			citiesEl.value = '';
+			radiusEl.value = '10';
+			clearMap();
+			clearResults();
+			setStatus('');
+		});
+
+		async function geocodeAddress(address) {
+			const url = new URL('https://maps.googleapis.com/maps/api/geocode/json');
+			url.searchParams.set('address', address);
+			url.searchParams.set('key', window.GMAPS_KEY);
+			const res = await fetch(url);
+			if (!res.ok) throw new Error('Network error during geocoding');
+			const data = await res.json();
+			if (data.status !== 'OK' || !data.results?.length) throw new Error(data.error_message || 'No results');
+			const r = data.results[0];
+			return {
+				lat: r.geometry.location.lat,
+				lng: r.geometry.location.lng,
+				formatted: r.formatted_address,
+				placeId: r.place_id
+			};
+		}
+
+		function drawOriginAndRadius(originLatLng, miles) {
+			originMarker = new google.maps.Marker({ position: originLatLng, map, title: 'Origin' });
+			const meters = miles * 1609.344;
+			radiusCircle = new google.maps.Circle({
+				strokeColor: '#e11d48',
+				strokeOpacity: 0.9,
+				strokeWeight: 1.5,
+				fillColor: '#fda4af',
+				fillOpacity: 0.25,
+				map,
+				center: originLatLng,
+				radius: meters
+			});
+			const bounds = radiusCircle.getBounds();
+			if (bounds) {
+				map.fitBounds(bounds, 60);
+			} else {
+				map.setCenter(originLatLng);
+				map.setZoom(12);
+			}
+		}
+
+		function addCityMarker(latLng, title, within) {
+			const marker = new google.maps.Marker({
+				position: latLng,
+				map,
+				title,
+				icon: within ? undefined : {
+					path: google.maps.SymbolPath.CIRCLE,
+					scale: 6,
+					fillColor: '#dc2626',
+					fillOpacity: 1,
+					strokeColor: '#7f1d1d',
+					strokeWeight: 1
+				}
+			});
+			markers.push(marker);
+			return marker;
+		}
+
+		function parseCitiesInput(text) {
+			return text.split(/\r?\n/).map(s => s.trim()).filter(Boolean);
+		}
+
+		function updateSummaryBadge(allWithin, hasAny) {
+			if (!hasAny) { summaryBadge.textContent = 'No results'; summaryBadge.className = 'badge'; return; }
+			if (allWithin) { summaryBadge.textContent = 'All within radius'; summaryBadge.className = 'badge ok'; }
+			else { summaryBadge.textContent = 'Some outside radius'; summaryBadge.className = 'badge no'; }
+		}
+
+		runBtn.addEventListener('click', async () => {
+			const originAddr = originEl.value.trim();
+			const cityLines = parseCitiesInput(citiesEl.value);
+			const radiusMiles = parseFloat(radiusEl.value);
+
+			if (!originAddr) { alert('Please enter a starting address.'); return; }
+			if (!cityLines.length) { alert('Please enter at least one city.'); return; }
+
+			setStatus('Geocoding origin…', true);
+			runBtn.disabled = true;
+
+			try {
+				clearMap();
+				clearResults();
+
+				const origin = await geocodeAddress(originAddr);
+				const originLL = { lat: origin.lat, lng: origin.lng };
+
+				drawOriginAndRadius(originLL, radiusMiles);
+
+				setStatus('Geocoding cities…', true);
+				const concurrency = 5;
+				const queue = [...cityLines];
+				const results = [];
+				let active = 0;
+
+				await new Promise((resolve) => {
+					const next = () => {
+						if (!queue.length && active === 0) return resolve();
+						while (active < concurrency && queue.length) {
+							const city = queue.shift();
+							active++;
+							geocodeAddress(city)
+								.then(loc => {
+									const dist = haversineMiles(origin.lat, origin.lng, loc.lat, loc.lng);
+									results.push({
+										input: city,
+										formatted: loc.formatted,
+										lat: loc.lat, lng: loc.lng,
+										distance: dist,
+										within: dist <= radiusMiles,
+										error: null
+									});
+								})
+								.catch(err => {
+									results.push({
+										input: city,
+										formatted: '',
+										lat: null, lng: null,
+										distance: null,
+										within: false,
+										error: err.message || 'Geocoding failed'
+									});
+								})
+								.finally(() => { active--; next(); });
+						}
+					};
+					next();
+				});
+
+				let withinCount = 0, outsideCount = 0, errorCount = 0;
+				results.sort((a,b) => {
+					if (a.error && !b.error) return 1;
+					if (!a.error && b.error) return -1;
+					return (a.distance ?? Infinity) - (b.distance ?? Infinity);
+				});
+				for (const r of results) {
+					const tr = document.createElement('tr');
+					if (r.error) {
+						tr.innerHTML = `
+							<td>${r.input}</td>
+							<td colspan="2" class="row-error">${r.error}</td>
+							<td><span class="badge no">N/A</span></td>`;
+						errorCount++;
+					} else {
+						addCityMarker({lat: r.lat, lng: r.lng}, r.formatted, r.within);
+						const distStr = r.distance.toFixed(2);
+						tr.innerHTML = `
+							<td>${r.input}</td>
+							<td>${r.formatted}</td>
+							<td>${distStr}</td>
+							<td>${r.within ? '<span class="badge ok">Yes</span>' : '<span class="badge no">No</span>'}</td>`;
+						if (r.within) withinCount++; else outsideCount++;
+					}
+					resultsTableBody.appendChild(tr);
+				}
+
+				const allWithin = outsideCount === 0 && errorCount === 0 && results.length > 0;
+				updateSummaryBadge(allWithin, results.length > 0);
+
+				resultsSummaryEl.textContent = allWithin
+					? `All ${withinCount} cities are within ${radiusMiles} miles.`
+					: `Within: ${withinCount}. Outside: ${outsideCount}. Errors: ${errorCount}.`;
+
+				totalsCell.textContent = `Total processed: ${results.length}. Radius: ${radiusMiles} miles. Origin: ${origin.formatted}.`;
+
+				setStatus('Done.', false);
+			} catch (e) {
+				console.error(e);
+				setStatus('Failed. See console for details.');
+				alert('Error: ' + (e.message || e));
+			} finally {
+				runBtn.disabled = false;
+			}
+		});
+	</script>
+
+	<script>
+		// Your Google Maps API key (restrict by HTTP referrer in Google Cloud Console)
+		window.GMAPS_KEY = 'AIzaSyArCDaKE-CPhfAZlrAEQidOgD_rfFJ_rqE';
+	</script>
+	<script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyArCDaKE-CPhfAZlrAEQidOgD_rfFJ_rqE&callback=initMap"></script>
+</body>
+</html>
