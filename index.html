@@ -46,6 +46,11 @@
 				<input id="origin" type="text" placeholder="e.g., 600 Grant St, Pittsburgh, PA">
 			</div>
 			<div class="field">
+				<label for="service">Primary service</label>
+				<input id="service" type="text" placeholder="e.g., plumber, dentist, pizza">
+				<div class="subtle">What type of service are you interested in?</div>
+			</div>
+			<div class="field">
 				<label for="cities">Cities to check (one per line)</label>
 				<textarea id="cities" placeholder="e.g.
 Dormont, PA
@@ -89,11 +94,13 @@ Wexford, PA"></textarea>
 							<th>Resolved Address</th>
 							<th>Distance (mi)</th>
 							<th>Within Radius?</th>
+							<th>Recommended Nearby City</th>
+							<th>Primary Service Search Volume</th>
 						</tr>
 					</thead>
 					<tbody></tbody>
 					<tfoot>
-						<tr><td colspan="4" id="totalsCell"></td></tr>
+						<tr><td colspan="6" id="totalsCell"></td></tr>
 					</tfoot>
 				</table>
 			</div>
@@ -115,6 +122,7 @@ Wexford, PA"></textarea>
 
 		// DOM
 		const originEl = document.getElementById('origin');
+		const serviceEl = document.getElementById('service');
 		const citiesEl = document.getElementById('cities');
 		const radiusEl = document.getElementById('radius');
 		const runBtn = document.getElementById('runBtn');
@@ -160,6 +168,7 @@ Wexford, PA"></textarea>
 
 		clearBtn.addEventListener('click', () => {
 			originEl.value = '';
+			serviceEl.value = '';
 			citiesEl.value = '';
 			radiusEl.value = '10';
 			clearMap();
@@ -250,12 +259,74 @@ Wexford, PA"></textarea>
 			}
 		}
 
+		// Recommend city in radius with most search volume for the primary service
+		async function recommendNearbyCityWithVolume(origin, cityLatLng, radiusMiles, service) {
+			const serviceObj = new google.maps.places.PlacesService(map);
+			return new Promise((resolve) => {
+				const request = {
+					location: cityLatLng,
+					radius: Math.floor(radiusMiles * 1609.344),
+					type: ['locality']
+				};
+				serviceObj.nearbySearch(request, async (results, status) => {
+					if (status === google.maps.places.PlacesServiceStatus.OK && results && results.length) {
+						// Remove duplicates and the origin city
+						let cityRecs = results.filter(r => {
+							const distToOrigin = haversineMiles(
+								origin.lat, origin.lng,
+								r.geometry.location.lat(), r.geometry.location.lng()
+							);
+							return distToOrigin <= radiusMiles;
+						});
+						// For each city, get service search volume
+						let searchVolumes = await Promise.all(cityRecs.map(async (city) => {
+							const cityLatLng = city.geometry.location;
+							const query = `${service} in ${city.name}`;
+							return new Promise((resolveVolume) => {
+								serviceObj.textSearch({
+									location: cityLatLng,
+									radius: 10000, // 10km radius for density
+									query: query
+								}, (svcResults, svcStatus) => {
+									if (svcStatus === google.maps.places.PlacesServiceStatus.OK && svcResults) {
+										resolveVolume({
+											name: city.name,
+											address: city.vicinity || city.formatted_address || '',
+											volume: svcResults.length
+										});
+									} else {
+										resolveVolume({
+											name: city.name,
+											address: city.vicinity || city.formatted_address || '',
+											volume: 0
+										});
+									}
+								});
+							});
+						}));
+
+						// Find city with max search volume
+						let best = searchVolumes.reduce((a, b) => (b.volume > a.volume ? b : a), {volume: -1});
+						if (best && best.volume > 0) {
+							resolve({ name: best.name, address: best.address, volume: best.volume });
+						} else {
+							resolve({ name: 'No nearby city found', address: '', volume: 0 });
+						}
+					} else {
+						resolve({ name: 'No nearby city found', address: '', volume: 0 });
+					}
+				});
+			});
+		}
+
 		runBtn.addEventListener('click', async () => {
 			const originAddr = originEl.value.trim();
+			const service = serviceEl.value.trim();
 			const cityLines = parseCitiesInput(citiesEl.value);
 			const radiusMiles = parseFloat(radiusEl.value);
 
 			if (!originAddr) { alert('Please enter a starting address.'); return; }
+			if (!service) { alert('Please enter a primary service.'); return; }
 			if (!cityLines.length) { alert('Please enter at least one city.'); return; }
 
 			setStatus('Geocoding origin…', true);
@@ -318,11 +389,18 @@ Wexford, PA"></textarea>
 				});
 				for (const r of results) {
 					const tr = document.createElement('tr');
+					let recommendCell = document.createElement('td');
+					let volumeCell = document.createElement('td');
 					if (r.error) {
 						tr.innerHTML = `
 							<td>${r.input}</td>
 							<td colspan="2" class="row-error">${r.error}</td>
-							<td><span class="badge no">N/A</span></td>`;
+							<td><span class="badge no">N/A</span></td>
+						`;
+						recommendCell.textContent = '';
+						volumeCell.textContent = '';
+						tr.appendChild(recommendCell);
+						tr.appendChild(volumeCell);
 						errorCount++;
 					} else {
 						addCityMarker({lat: r.lat, lng: r.lng}, r.formatted, r.within);
@@ -331,8 +409,31 @@ Wexford, PA"></textarea>
 							<td>${r.input}</td>
 							<td>${r.formatted}</td>
 							<td>${distStr}</td>
-							<td>${r.within ? '<span class="badge ok">Yes</span>' : '<span class="badge no">No</span>'}</td>`;
-						if (r.within) withinCount++; else outsideCount++;
+							<td>${r.within ? '<span class="badge ok">Yes</span>' : '<span class="badge no">No</span>'}</td>
+						`;
+						if (r.within) {
+							recommendCell.textContent = '-';
+							volumeCell.textContent = '-';
+							withinCount++;
+							tr.appendChild(recommendCell);
+							tr.appendChild(volumeCell);
+						} else {
+							// Recommend city with highest service search volume
+							recommendCell.textContent = 'Searching…';
+							volumeCell.textContent = '';
+							tr.appendChild(recommendCell);
+							tr.appendChild(volumeCell);
+							recommendNearbyCityWithVolume(origin, {lat: r.lat, lng: r.lng}, radiusMiles, service)
+								.then(rec => {
+									recommendCell.textContent = rec.name + (rec.address ? ', ' + rec.address : '');
+									volumeCell.textContent = rec.volume;
+								})
+								.catch(() => {
+									recommendCell.textContent = 'No nearby city found';
+									volumeCell.textContent = '0';
+								});
+							outsideCount++;
+						}
 					}
 					resultsTableBody.appendChild(tr);
 				}
