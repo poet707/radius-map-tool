@@ -136,7 +136,6 @@ Wexford, PA"></textarea>
 		let map, originMarker, radiusCircle;
 		let markers = [];
 
-		// Initialize map centered on USA; will recenter on geocoded origin
 		function initMap() {
 			map = new google.maps.Map(document.getElementById('map'), {
 				center: { lat: 39.8283, lng: -98.5795 },
@@ -176,7 +175,6 @@ Wexford, PA"></textarea>
 			setStatus('');
 		});
 
-		// Client-side geocoding using Maps JavaScript API (works with referrer-restricted keys)
 		function geocodeAddress(address) {
 			const geocoder = new google.maps.Geocoder();
 			return new Promise((resolve, reject) => {
@@ -259,105 +257,23 @@ Wexford, PA"></textarea>
 			}
 		}
 
-		// Helper: Get nearby city names using AutocompleteService
-		function getNearbyCitiesFromAutocomplete(cityLatLng, radiusMiles) {
-			return new Promise((resolve) => {
-				const autocomplete = new google.maps.places.AutocompleteService();
-				autocomplete.getPlacePredictions({
-					input: '', // empty input to get all possible cities
-					types: ['(cities)'],
-					location: cityLatLng,
-					radius: radiusMiles * 1609.344,
-					strictBounds: false
-				}, (predictions, status) => {
-					if (status === google.maps.places.PlacesServiceStatus.OK && predictions) {
-						const cities = [];
-						const seen = new Set();
-						for (const p of predictions) {
-							if (p.structured_formatting && p.structured_formatting.main_text &&
-								!seen.has(p.structured_formatting.main_text)) {
-								cities.push({
-									name: p.structured_formatting.main_text,
-									place_id: p.place_id,
-									description: p.description
-								});
-								seen.add(p.structured_formatting.main_text);
-							}
-						}
-						resolve(cities);
+		// Get service search volume for a city using Places Text Search
+		function getServiceVolumeForCity(city, service) {
+			return new Promise(resolve => {
+				const serviceObj = new google.maps.places.PlacesService(map);
+				const query = `${service} in ${city.formatted}`;
+				serviceObj.textSearch({
+					location: { lat: city.lat, lng: city.lng },
+					radius: 10000,
+					query: query
+				}, (svcResults, svcStatus) => {
+					if (svcStatus === google.maps.places.PlacesServiceStatus.OK && svcResults) {
+						resolve(svcResults.length);
 					} else {
-						resolve([]);
+						resolve(0);
 					}
 				});
 			});
-		}
-
-		// Helper: Geocode a place_id to get lat/lng
-		function geocodePlaceId(placeId) {
-			const geocoder = new google.maps.Geocoder();
-			return new Promise((resolve, reject) => {
-				geocoder.geocode({ placeId }, (results, status) => {
-					if (status === 'OK' && results[0]) {
-						resolve({
-							lat: results[0].geometry.location.lat(),
-							lng: results[0].geometry.location.lng(),
-							formatted: results[0].formatted_address
-						});
-					} else {
-						reject();
-					}
-				});
-			});
-		}
-
-		// Main: Recommend the best nearby city and service volume
-		async function recommendNearbyCityWithVolume(origin, cityLatLng, radiusMiles, service, originCityName) {
-			const cities = await getNearbyCitiesFromAutocomplete(cityLatLng, radiusMiles);
-			if (!cities.length) return { name: 'No nearby city found', address: '', volume: 0 };
-
-			const serviceObj = new google.maps.places.PlacesService(map);
-			let best = { name: '', address: '', volume: 0 };
-
-			for (const c of cities) {
-				try {
-					const geo = await geocodePlaceId(c.place_id);
-
-					// Exclude the same city as the origin or the city itself
-					if (c.name.toLowerCase() === originCityName.toLowerCase()) continue;
-
-					// Only recommend if within radius from origin
-					const distToOrigin = haversineMiles(origin.lat, origin.lng, geo.lat, geo.lng);
-					if (distToOrigin > radiusMiles) continue;
-
-					// 3. Search for service in this city
-					const query = `${service} in ${c.name}`;
-					const svcVolume = await new Promise((resolveVolume) => {
-						serviceObj.textSearch({
-							location: { lat: geo.lat, lng: geo.lng },
-							radius: 10000,
-							query: query
-						}, (svcResults, svcStatus) => {
-							if (svcStatus === google.maps.places.PlacesServiceStatus.OK && svcResults) {
-								resolveVolume(svcResults.length);
-							} else {
-								resolveVolume(0);
-							}
-						});
-					});
-
-					if (svcVolume > best.volume) {
-						best = { name: c.name, address: geo.formatted, volume: svcVolume };
-					}
-				} catch (e) {
-					// Ignore geocode errors
-				}
-			}
-
-			if (best.name) {
-				return best;
-			} else {
-				return { name: 'No nearby city found', address: '', volume: 0 };
-			}
 		}
 
 		runBtn.addEventListener('click', async () => {
@@ -428,6 +344,7 @@ Wexford, PA"></textarea>
 					if (!a.error && b.error) return -1;
 					return (a.distance ?? Infinity) - (b.distance ?? Infinity);
 				});
+
 				for (const r of results) {
 					const tr = document.createElement('tr');
 					let recommendCell = document.createElement('td');
@@ -463,15 +380,30 @@ Wexford, PA"></textarea>
 							volumeCell.textContent = '';
 							tr.appendChild(recommendCell);
 							tr.appendChild(volumeCell);
-							recommendNearbyCityWithVolume(origin, {lat: r.lat, lng: r.lng}, radiusMiles, service, origin.formatted || originAddr)
-								.then(rec => {
-									recommendCell.textContent = rec.name + (rec.address ? ', ' + rec.address : '');
-									volumeCell.textContent = rec.volume;
-								})
-								.catch(() => {
-									recommendCell.textContent = 'No nearby city found';
-									volumeCell.textContent = '0';
-								});
+
+							// NEW LOGIC: Use other cities within radius as candidates
+							const candidates = results.filter(
+								c => c.within && !c.error && c.input !== r.input
+							);
+
+							if (candidates.length === 0) {
+								recommendCell.textContent = 'No nearby city found';
+								volumeCell.textContent = '0';
+							} else {
+								Promise.all(candidates.map(c => getServiceVolumeForCity(c, service)))
+									.then(volumes => {
+										let maxIdx = 0;
+										for (let i = 1; i < volumes.length; ++i) {
+											if (volumes[i] > volumes[maxIdx]) maxIdx = i;
+										}
+										recommendCell.textContent = candidates[maxIdx].input + (candidates[maxIdx].formatted ? ', ' + candidates[maxIdx].formatted : '');
+										volumeCell.textContent = volumes[maxIdx];
+									})
+									.catch(() => {
+										recommendCell.textContent = 'No nearby city found';
+										volumeCell.textContent = '0';
+									});
+							}
 							outsideCount++;
 						}
 					}
@@ -497,12 +429,9 @@ Wexford, PA"></textarea>
 			}
 		});
 	</script>
-
-	<!-- Your Google Maps API key (restrict by HTTP referrer in Google Cloud Console) -->
 	<script>
 		window.GMAPS_KEY = 'AIzaSyArCDaKE-CPhfAZlrAEQidOgD_rfFJ_rqE';
 	</script>
-	<!-- Load Maps JS with callback to initMap. Geocoder is included in core; Places is optional. -->
 	<script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyArCDaKE-CPhfAZlrAEQidOgD_rfFJ_rqE&callback=initMap&libraries=places"></script>
 </body>
 </html>
