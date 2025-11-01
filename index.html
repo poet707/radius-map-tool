@@ -259,64 +259,105 @@ Wexford, PA"></textarea>
 			}
 		}
 
-		// Recommend city in radius with most search volume for the primary service
-		async function recommendNearbyCityWithVolume(origin, cityLatLng, radiusMiles, service) {
-			const serviceObj = new google.maps.places.PlacesService(map);
+		// Helper: Get nearby city names using AutocompleteService
+		function getNearbyCitiesFromAutocomplete(cityLatLng, radiusMiles) {
 			return new Promise((resolve) => {
-				const request = {
+				const autocomplete = new google.maps.places.AutocompleteService();
+				autocomplete.getPlacePredictions({
+					input: '', // empty input to get all possible cities
+					types: ['(cities)'],
 					location: cityLatLng,
-					radius: Math.floor(radiusMiles * 1609.344),
-					type: ['locality']
-				};
-				serviceObj.nearbySearch(request, async (results, status) => {
-					if (status === google.maps.places.PlacesServiceStatus.OK && results && results.length) {
-						// Remove duplicates and the origin city
-						let cityRecs = results.filter(r => {
-							const distToOrigin = haversineMiles(
-								origin.lat, origin.lng,
-								r.geometry.location.lat(), r.geometry.location.lng()
-							);
-							return distToOrigin <= radiusMiles;
-						});
-						// For each city, get service search volume
-						let searchVolumes = await Promise.all(cityRecs.map(async (city) => {
-							const cityLatLng = city.geometry.location;
-							const query = `${service} in ${city.name}`;
-							return new Promise((resolveVolume) => {
-								serviceObj.textSearch({
-									location: cityLatLng,
-									radius: 10000, // 10km radius for density
-									query: query
-								}, (svcResults, svcStatus) => {
-									if (svcStatus === google.maps.places.PlacesServiceStatus.OK && svcResults) {
-										resolveVolume({
-											name: city.name,
-											address: city.vicinity || city.formatted_address || '',
-											volume: svcResults.length
-										});
-									} else {
-										resolveVolume({
-											name: city.name,
-											address: city.vicinity || city.formatted_address || '',
-											volume: 0
-										});
-									}
+					radius: radiusMiles * 1609.344,
+					strictBounds: false
+				}, (predictions, status) => {
+					if (status === google.maps.places.PlacesServiceStatus.OK && predictions) {
+						const cities = [];
+						const seen = new Set();
+						for (const p of predictions) {
+							if (p.structured_formatting && p.structured_formatting.main_text &&
+								!seen.has(p.structured_formatting.main_text)) {
+								cities.push({
+									name: p.structured_formatting.main_text,
+									place_id: p.place_id,
+									description: p.description
 								});
-							});
-						}));
-
-						// Find city with max search volume
-						let best = searchVolumes.reduce((a, b) => (b.volume > a.volume ? b : a), {volume: -1});
-						if (best && best.volume > 0) {
-							resolve({ name: best.name, address: best.address, volume: best.volume });
-						} else {
-							resolve({ name: 'No nearby city found', address: '', volume: 0 });
+								seen.add(p.structured_formatting.main_text);
+							}
 						}
+						resolve(cities);
 					} else {
-						resolve({ name: 'No nearby city found', address: '', volume: 0 });
+						resolve([]);
 					}
 				});
 			});
+		}
+
+		// Helper: Geocode a place_id to get lat/lng
+		function geocodePlaceId(placeId) {
+			const geocoder = new google.maps.Geocoder();
+			return new Promise((resolve, reject) => {
+				geocoder.geocode({ placeId }, (results, status) => {
+					if (status === 'OK' && results[0]) {
+						resolve({
+							lat: results[0].geometry.location.lat(),
+							lng: results[0].geometry.location.lng(),
+							formatted: results[0].formatted_address
+						});
+					} else {
+						reject();
+					}
+				});
+			});
+		}
+
+		// Main: Recommend the best nearby city and service volume
+		async function recommendNearbyCityWithVolume(origin, cityLatLng, radiusMiles, service, originCityName) {
+			const cities = await getNearbyCitiesFromAutocomplete(cityLatLng, radiusMiles);
+			if (!cities.length) return { name: 'No nearby city found', address: '', volume: 0 };
+
+			const serviceObj = new google.maps.places.PlacesService(map);
+			let best = { name: '', address: '', volume: 0 };
+
+			for (const c of cities) {
+				try {
+					const geo = await geocodePlaceId(c.place_id);
+
+					// Exclude the same city as the origin or the city itself
+					if (c.name.toLowerCase() === originCityName.toLowerCase()) continue;
+
+					// Only recommend if within radius from origin
+					const distToOrigin = haversineMiles(origin.lat, origin.lng, geo.lat, geo.lng);
+					if (distToOrigin > radiusMiles) continue;
+
+					// 3. Search for service in this city
+					const query = `${service} in ${c.name}`;
+					const svcVolume = await new Promise((resolveVolume) => {
+						serviceObj.textSearch({
+							location: { lat: geo.lat, lng: geo.lng },
+							radius: 10000,
+							query: query
+						}, (svcResults, svcStatus) => {
+							if (svcStatus === google.maps.places.PlacesServiceStatus.OK && svcResults) {
+								resolveVolume(svcResults.length);
+							} else {
+								resolveVolume(0);
+							}
+						});
+					});
+
+					if (svcVolume > best.volume) {
+						best = { name: c.name, address: geo.formatted, volume: svcVolume };
+					}
+				} catch (e) {
+					// Ignore geocode errors
+				}
+			}
+
+			if (best.name) {
+				return best;
+			} else {
+				return { name: 'No nearby city found', address: '', volume: 0 };
+			}
 		}
 
 		runBtn.addEventListener('click', async () => {
@@ -418,12 +459,11 @@ Wexford, PA"></textarea>
 							tr.appendChild(recommendCell);
 							tr.appendChild(volumeCell);
 						} else {
-							// Recommend city with highest service search volume
 							recommendCell.textContent = 'Searching…';
 							volumeCell.textContent = '';
 							tr.appendChild(recommendCell);
 							tr.appendChild(volumeCell);
-							recommendNearbyCityWithVolume(origin, {lat: r.lat, lng: r.lng}, radiusMiles, service)
+							recommendNearbyCityWithVolume(origin, {lat: r.lat, lng: r.lng}, radiusMiles, service, origin.formatted || originAddr)
 								.then(rec => {
 									recommendCell.textContent = rec.name + (rec.address ? ', ' + rec.address : '');
 									volumeCell.textContent = rec.volume;
