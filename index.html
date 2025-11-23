@@ -5,36 +5,235 @@
 	<title>Radius-Based City Verification Map Tool</title>
 	<meta name="viewport" content="width=device-width, initial-scale=1">
 	<style>
-		body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; margin: 0; background: #f7f7f8; color: #111; }
-		header { padding: 16px 20px; background: #fff; border-bottom: 1px solid #e6e6e6; position: sticky; top: 0; z-index: 2; }
-		h1 { font-size: 18px; margin: 0; }
-		main { display: grid; grid-template-columns: 360px 1fr; gap: 16px; padding: 16px; }
-		@media (max-width: 980px) { main { grid-template-columns: 1fr; } }
-		.card { background: #fff; border: 1px solid #e6e6e6; border-radius: 10px; padding: 12px; }
-		.field { margin-bottom: 12px; }
-		label { display: block; font-size: 12px; color: #555; margin-bottom: 6px; }
+		body {
+			font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+			margin: 0;
+			background: #f7f7f8;
+			color: #111;
+		}
+		header {
+			padding: 16px 20px;
+			background: #fff;
+			border-bottom: 1px solid #e6e6e6;
+			position: sticky;
+			top: 0;
+			z-index: 2;
+		}
+		h1 {
+			font-size: 18px;
+			margin: 0;
+		}
+		main {
+			display: grid;
+			grid-template-columns: 360px 1fr;
+			gap: 24px;
+			padding: 24px;
+			max-width: 1440px;
+			margin: auto;
+		}
+		@media (max-width: 980px) {
+			main {
+				grid-template-columns: 1fr;
+				padding: 16px;
+				gap: 16px;
+			}
+		}
+		.card {
+			background: #fff;
+			border: 1px solid #e6e6e6;
+			border-radius: 14px;
+			padding: 18px 18px 16px 18px;
+			box-shadow: 0 2px 12px rgba(0,0,0,0.04);
+		}
+		.field {
+			margin-bottom: 20px;
+		}
+		.field:last-child {
+			margin-bottom: 0;
+		}
+		label {
+			display: block;
+			font-size: 13px;
+			color: #555;
+			margin-bottom: 7px;
+			font-weight: 500;
+			letter-spacing: .01em;
+		}
 		input[type="text"], select, textarea {
-			width: 100%; padding: 10px; border: 1px solid #dcdcdc; border-radius: 8px; font-size: 14px; box-sizing: border-box; background: #fff;
+			width: 100%;
+			padding: 11px;
+			border: 1px solid #dcdcdc;
+			border-radius: 9px;
+			font-size: 15px;
+			box-sizing: border-box;
+			background: #fff;
+			outline: none;
+			transition: border-color 0.16s;
 		}
-		textarea { min-height: 120px; resize: vertical; }
-		.actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+		input[type="text"]:focus, select:focus, textarea:focus {
+			border-color: #1f64ff;
+			box-shadow: 0 0 0 2px #adc7f71a;
+		}
+		textarea {
+			min-height: 120px;
+			resize: vertical;
+		}
+		.actions {
+			display: flex;
+			gap: 10px;
+			align-items: center;
+			flex-wrap: wrap;
+			margin-top: 12px;
+		}
 		button {
-			appearance: none; border: 1px solid #1f64ff; background: #1f64ff; color: #fff; padding: 10px 14px;
-			border-radius: 8px; font-weight: 600; cursor: pointer;
+			appearance: none;
+			border: 1px solid #1f64ff;
+			background: #1f64ff;
+			color: #fff;
+			padding: 11px 16px;
+			border-radius: 8px;
+			font-weight: 600;
+			cursor: pointer;
+			letter-spacing: .02em;
+			transition: background 0.17s, color 0.17s, border 0.17s;
 		}
-		button.secondary { background: #fff; color: #1f64ff; }
-		.subtle { font-size: 12px; color: #666; }
-		#map { width: 100%; height: 70vh; min-height: 420px; border-radius: 10px; }
-		.badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; border: 1px solid #e2e2e2; }
-		.badge.ok { background: #e9f9ee; color: #0f7b3e; border-color: #bfe8cf; }
-		.badge.no { background: #fdeceb; color: #a3312e; border-color: #f1c6c3; }
-		table { width: 100%; border-collapse: collapse; font-size: 14px; }
-		th, td { border-bottom: 1px solid #eee; padding: 8px; text-align: left; }
-		th { font-size: 12px; color: #555; text-transform: uppercase; letter-spacing: .02em; }
-		tfoot td { font-weight: 600; }
-		.row-error { color: #a3312e; font-size: 12px; }
-		.spinner { width: 16px; height: 16px; border: 2px solid #e0e7ff; border-top-color: #1f64ff; border-radius: 50%; animation: spin 0.8s linear infinite; display: inline-block; vertical-align: -3px; }
-		@keyframes spin { to { transform: rotate(360deg); } }
+		button.secondary {
+			background: #fff;
+			color: #1f64ff;
+		}
+		button:disabled {
+			opacity: 0.6;
+			cursor: not-allowed;
+		}
+		.subtle {
+			font-size: 13px;
+			color: #777;
+			margin-top: 3px;
+		}
+		#map {
+			width: 100%;
+			height: 70vh;
+			min-height: 420px;
+			border-radius: 12px;
+			position: relative;
+			box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+		}
+		.badge {
+			display: inline-block;
+			padding: 3px 10px;
+			border-radius: 999px;
+			font-size: 13px;
+			border: 1px solid #e2e2e2;
+			line-height: 20px;
+			font-weight: 500;
+			vertical-align: baseline;
+			margin-right: 5px;
+		}
+		.badge.ok {
+			background: #e9f9ee;
+			color: #0f7b3e;
+			border-color: #bfe8cf;
+		}
+		.badge.no {
+			background: #fdeceb;
+			color: #a3312e;
+			border-color: #f1c6c3;
+		}
+		table {
+			width: 100%;
+			border-collapse: collapse;
+			font-size: 14px;
+			background: #fff;
+			border-radius: 8px;
+			overflow: hidden;
+		}
+		th, td {
+			border-bottom: 1px solid #eee;
+			padding: 8px;
+			text-align: left;
+		}
+		th {
+			font-size: 13px;
+			color: #555;
+			text-transform: uppercase;
+			letter-spacing: .02em;
+			background: #f8f9fc;
+			font-weight: 600;
+		}
+		tfoot td {
+			font-weight: 600;
+		}
+		.row-error {
+			color: #a3312e;
+			font-size: 12px;
+		}
+		.spinner {
+			width: 16px;
+			height: 16px;
+			border: 2px solid #e0e7ff;
+			border-top-color: #1f64ff;
+			border-radius: 50%;
+			animation: spin 0.8s linear infinite;
+			display: inline-block;
+			vertical-align: -3px;
+		}
+		@keyframes spin {
+			to {
+				transform: rotate(360deg);
+			}
+		}
+		.radius-label {
+			position: absolute;
+			z-index: 30;
+			background: #1f64ff;
+			color: #fff;
+			font-size: 14px;
+			font-weight: 600;
+			border-radius: 7px;
+			padding: 7px 14px;
+			pointer-events: none;
+			box-shadow: 0 1px 8px rgba(31,100,255,.08);
+			border: 1px solid #adc7f7;
+			transform: translate(-50%,-50%);
+			white-space: nowrap;
+			user-select: none;
+		}
+		.field-row {
+			display: flex;
+			gap: 14px;
+			margin-bottom: 20px;
+		}
+		.field-col {
+			flex: 1 1 0px;
+			display: flex;
+			flex-direction: column;
+		}
+		@media (max-width: 640px) {
+			.field-row {
+				flex-direction: column;
+				gap: 8px;
+			}
+		}
+		#keywordResults {
+			margin-top: 24px;
+			margin-bottom: 0;
+			background: #f6f8fb;
+			border-radius: 10px;
+			padding: 16px 14px;
+			border: 1px solid #e2e7ef;
+		}
+		.keyword-category {
+			font-weight: 600;
+			color: #3366cc;
+			font-size: 15px;
+			margin-bottom: 5px;
+			margin-top: 10px;
+		}
+		.keyword-list {
+			margin: 0 0 8px 0;
+			padding: 0;
+			list-style: inside disc;
+		}
 	</style>
 </head>
 <body>
@@ -45,22 +244,26 @@
 				<label for="origin">Starting address</label>
 				<input id="origin" type="text" placeholder="e.g., 600 Grant St, Pittsburgh, PA">
 			</div>
-			<div class="field">
-				<label for="service">Primary service</label>
-				<input id="service" type="text" placeholder="e.g., plumber, dentist, pizza">
-				<div class="subtle">What type of service are you interested in?</div>
+			<div class="field-row">
+				<div class="field-col">
+					<label for="primaryCategory">Primary category</label>
+					<input id="primaryCategory" type="text" placeholder="e.g., plumber">
+				</div>
+				<div class="field-col">
+					<label for="secondaryCategory">Secondary category</label>
+					<input id="secondaryCategory" type="text" placeholder="e.g., emergency">
+				</div>
 			</div>
 			<div class="field">
-				<label for="cities">Cities to check (one per line)</label>
-				<textarea id="cities" placeholder="e.g.
-Dormont, PA
+				<label for="cities">Cities to check <span class="subtle">(one per line)</span></label>
+				<textarea id="cities" placeholder="Dormont, PA
 Mt. Lebanon, PA
 Coraopolis, PA
 Wexford, PA"></textarea>
 				<div class="subtle">Tips: Include state for best accuracy. You can paste a CSV column.</div>
 			</div>
 			<div class="field">
-				<label for="radius">Radius (miles)</label>
+				<label for="radius">Radius <span class="subtle">(miles)</span></label>
 				<select id="radius">
 					<option value="5">5 miles</option>
 					<option value="10" selected>10 miles</option>
@@ -78,13 +281,11 @@ Wexford, PA"></textarea>
 				<span class="badge" id="summaryBadge">Ready</span>
 			</div>
 		</section>
-
 		<section class="card">
 			<div id="map"></div>
 		</section>
-
 		<section class="card" style="grid-column: 1 / -1;">
-			<h3 style="margin: 4px 0 10px;">Results</h3>
+			<h3 style="margin: 4px 0 10px;">Verification Results</h3>
 			<div class="subtle" id="resultsSummary">No results yet.</div>
 			<div style="overflow:auto; margin-top:8px;">
 				<table id="resultsTable" aria-label="Verification results">
@@ -104,6 +305,11 @@ Wexford, PA"></textarea>
 					</tfoot>
 				</table>
 			</div>
+			<!-- Keyword results section -->
+			<div id="keywordResults" style="display:none">
+				<h4 style="margin-top:0;">Top 5 Keywords per Category (within radius)</h4>
+				<div id="keywordCategoryResults"></div>
+			</div>
 		</section>
 	</main>
 
@@ -111,7 +317,7 @@ Wexford, PA"></textarea>
 		// Math helpers
 		const toRad = d => d * Math.PI / 180;
 		function haversineMiles(lat1, lon1, lat2, lon2) {
-			const R = 3958.7613; // Earth radius in miles
+			const R = 3958.7613;
 			const dLat = toRad(lat2 - lat1);
 			const dLon = toRad(lon2 - lon1);
 			const a = Math.sin(dLat/2) ** 2 +
@@ -120,9 +326,9 @@ Wexford, PA"></textarea>
 			return R * c;
 		}
 
-		// DOM
 		const originEl = document.getElementById('origin');
-		const serviceEl = document.getElementById('service');
+		const primaryCatEl = document.getElementById('primaryCategory');
+		const secondaryCatEl = document.getElementById('secondaryCategory');
 		const citiesEl = document.getElementById('cities');
 		const radiusEl = document.getElementById('radius');
 		const runBtn = document.getElementById('runBtn');
@@ -132,9 +338,12 @@ Wexford, PA"></textarea>
 		const resultsTableBody = document.querySelector('#resultsTable tbody');
 		const totalsCell = document.getElementById('totalsCell');
 		const summaryBadge = document.getElementById('summaryBadge');
+		const keywordResultsEl = document.getElementById('keywordResults');
+		const keywordCategoryResultsEl = document.getElementById('keywordCategoryResults');
 
 		let map, originMarker, radiusCircle;
 		let markers = [];
+		let radiusLabelEl = null;
 
 		function initMap() {
 			map = new google.maps.Map(document.getElementById('map'), {
@@ -150,11 +359,23 @@ Wexford, PA"></textarea>
 			statusEl.innerHTML = spinning ? '<span class="spinner"></span> ' + msg : msg;
 		}
 
+		function cleanupRadiusLabel() {
+			if (radiusLabelEl) {
+				radiusLabelEl.remove();
+				radiusLabelEl = null;
+			}
+			if (map && map._radiusLabelListener) {
+				google.maps.event.removeListener(map._radiusLabelListener);
+				map._radiusLabelListener = null;
+			}
+		}
+
 		function clearMap() {
 			if (originMarker) { originMarker.setMap(null); originMarker = null; }
 			if (radiusCircle) { radiusCircle.setMap(null); radiusCircle = null; }
 			markers.forEach(m => m.setMap(null));
 			markers = [];
+			cleanupRadiusLabel();
 		}
 
 		function clearResults() {
@@ -163,11 +384,14 @@ Wexford, PA"></textarea>
 			totalsCell.textContent = '';
 			summaryBadge.textContent = 'Ready';
 			summaryBadge.className = 'badge';
+			keywordResultsEl.style.display = 'none';
+			keywordCategoryResultsEl.innerHTML = '';
 		}
 
 		clearBtn.addEventListener('click', () => {
 			originEl.value = '';
-			serviceEl.value = '';
+			primaryCatEl.value = '';
+			secondaryCatEl.value = '';
 			citiesEl.value = '';
 			radiusEl.value = '10';
 			clearMap();
@@ -194,6 +418,60 @@ Wexford, PA"></textarea>
 			});
 		}
 
+		function deg2rad(deg) { return deg * (Math.PI/180); }
+		function rad2deg(rad) { return rad * (180/Math.PI); }
+
+		function latLngOffset(originLat, originLng, miles, bearingDeg = 135) {
+			const R = 3958.7613;
+			const bearing = deg2rad(bearingDeg);
+			const d = miles / R;
+			const lat1 = deg2rad(originLat);
+			const lng1 = deg2rad(originLng);
+			const lat2 = Math.asin(
+				Math.sin(lat1) * Math.cos(d) +
+				Math.cos(lat1) * Math.sin(d) * Math.cos(bearing)
+			);
+			const lng2 = lng1 + Math.atan2(
+				Math.sin(bearing) * Math.sin(d) * Math.cos(lat1),
+				Math.cos(d) - Math.sin(lat1) * Math.sin(lat2)
+			);
+			return {lat: rad2deg(lat2), lng: rad2deg(lng2)};
+		}
+
+		function placeRadiusLabel(originLL, radiusMiles, mapInstance) {
+			cleanupRadiusLabel();
+			const sePoint = latLngOffset(originLL.lat, originLL.lng, radiusMiles, 135);
+
+			const projLabel = () => {
+				if (!mapInstance || !mapInstance.getProjection || !radiusLabelEl) return;
+				const scale = Math.pow(2, mapInstance.getZoom());
+				const proj = mapInstance.getProjection();
+				if (!proj) return;
+				const bounds = mapInstance.getBounds();
+				if (!bounds) return;
+				const nw = proj.fromLatLngToPoint(bounds.getNorthEast());
+				const sw = proj.fromLatLngToPoint(bounds.getSouthWest());
+				const pt = proj.fromLatLngToPoint(new google.maps.LatLng(sePoint.lat, sePoint.lng));
+				const c = document.getElementById('map');
+				if (!c) return;
+				const x = (pt.x - sw.x) * c.offsetWidth / (nw.x - sw.x);
+				const y = (pt.y - nw.y) * c.offsetHeight / (sw.y - nw.y);
+				radiusLabelEl.style.left = `${x}px`;
+				radiusLabelEl.style.top = `${y}px`;
+			};
+
+			const c = document.getElementById('map');
+			const label = document.createElement('div');
+			label.className = 'radius-label';
+			label.textContent = `${radiusMiles.toFixed(1)} mi radius`;
+			label.style.left = '0px';
+			label.style.top = '0px';
+			c.appendChild(label);
+			radiusLabelEl = label;
+			map._radiusLabelListener = google.maps.event.addListener(mapInstance, 'idle', projLabel);
+			setTimeout(projLabel, 200);
+		}
+
 		function drawOriginAndRadius(originLatLng, miles) {
 			originMarker = new google.maps.Marker({
 				position: originLatLng,
@@ -218,6 +496,7 @@ Wexford, PA"></textarea>
 				map.setCenter(originLatLng);
 				map.setZoom(12);
 			}
+			placeRadiusLabel(originLatLng, miles, map);
 		}
 
 		function addCityMarker(latLng, title, within) {
@@ -257,7 +536,6 @@ Wexford, PA"></textarea>
 			}
 		}
 
-		// Get service search volume for a city using Places Text Search
 		function getServiceVolumeForCity(city, service) {
 			return new Promise(resolve => {
 				const serviceObj = new google.maps.places.PlacesService(map);
@@ -276,14 +554,50 @@ Wexford, PA"></textarea>
 			});
 		}
 
+		// --- NEW: Find top 5 keywords for each category using Places API ---
+		async function findTopKeywordsForCategory(originLL, radiusMiles, category) {
+			return new Promise((resolve) => {
+				if (!category) return resolve([]);
+				const serviceObj = new google.maps.places.PlacesService(map);
+				// Google Places type search is not true "keywords", but we can tally terms in name/types.
+				let keywords = {};
+				const query = category;
+				serviceObj.textSearch({
+					location: { lat: originLL.lat, lng: originLL.lng },
+					radius: radiusMiles * 1609.344,
+					query: query
+				}, (svcResults, svcStatus, pagination) => {
+					if (svcStatus !== google.maps.places.PlacesServiceStatus.OK || !svcResults) return resolve([]);
+					for (const place of svcResults) {
+						// Collect from name, types, and business description (if available)
+						(place.name.split(/[\s,-]+/) || []).forEach(k => {
+							k = k.trim().toLowerCase();
+							if (k.length > 2 && !["the", "and", "for", "to", "from", "with", "at", "by", "of", "in", "on", "llc", "inc"].includes(k))
+								keywords[k] = (keywords[k] || 0) + 1;
+						});
+						if (Array.isArray(place.types)) {
+							place.types.forEach(type => {
+								if (type.length > 2) keywords[type.toLowerCase()] = (keywords[type.toLowerCase()] || 0) + 1;
+							});
+						}
+						// Can extend to user_ratings_total etc if desired
+					}
+					// Sort and return top 5
+					const sorted = Object.entries(keywords).sort((a,b)=>b[1]-a[1]).map(([key, _])=>key);
+					resolve(sorted.slice(0,5));
+				});
+			});
+		}
+		// ---
+
 		runBtn.addEventListener('click', async () => {
 			const originAddr = originEl.value.trim();
-			const service = serviceEl.value.trim();
+			const primaryCategory = primaryCatEl.value.trim();
+			const secondaryCategory = secondaryCatEl.value.trim();
 			const cityLines = parseCitiesInput(citiesEl.value);
 			const radiusMiles = parseFloat(radiusEl.value);
 
 			if (!originAddr) { alert('Please enter a starting address.'); return; }
-			if (!service) { alert('Please enter a primary service.'); return; }
 			if (!cityLines.length) { alert('Please enter at least one city.'); return; }
 
 			setStatus('Geocoding origin…', true);
@@ -381,7 +695,6 @@ Wexford, PA"></textarea>
 							tr.appendChild(recommendCell);
 							tr.appendChild(volumeCell);
 
-							// NEW LOGIC: Use other cities within radius as candidates
 							const candidates = results.filter(
 								c => c.within && !c.error && c.input !== r.input
 							);
@@ -390,7 +703,10 @@ Wexford, PA"></textarea>
 								recommendCell.textContent = 'No nearby city found';
 								volumeCell.textContent = '0';
 							} else {
-								Promise.all(candidates.map(c => getServiceVolumeForCity(c, service)))
+								const searchCat = primaryCategory && secondaryCategory
+									? (primaryCategory + ' ' + secondaryCategory)
+									: (primaryCategory || secondaryCategory || '');
+								Promise.all(candidates.map(c => getServiceVolumeForCity(c, searchCat)))
 									.then(volumes => {
 										let maxIdx = 0;
 										for (let i = 1; i < volumes.length; ++i) {
@@ -419,7 +735,45 @@ Wexford, PA"></textarea>
 
 				totalsCell.textContent = `Total processed: ${results.length}. Radius: ${radiusMiles} miles. Origin: ${origin.formatted}.`;
 
+				// ------- NEW KEYWORD LOGIC --------
+				let catKeywords = [];
+				keywordCategoryResultsEl.innerHTML = '';
+				keywordResultsEl.style.display = 'block';
+				setStatus('Finding top keywords…', true);
+
+				// Helper to render category and keywords
+				function renderKeywordList(category, keywords) {
+					const catEl = document.createElement('div');
+					catEl.className = 'keyword-category';
+					catEl.textContent = category;
+					const ul = document.createElement('ul');
+					ul.className = 'keyword-list';
+					if (keywords.length === 0) {
+						const li = document.createElement('li');
+						li.textContent = 'No keywords found (try a broader category or location)';
+						ul.appendChild(li);
+					} else {
+						keywords.forEach(k => {
+							const li = document.createElement('li');
+							li.textContent = k;
+							ul.appendChild(li);
+						});
+					}
+					keywordCategoryResultsEl.appendChild(catEl);
+					keywordCategoryResultsEl.appendChild(ul);
+				}
+
+				// Process (sequential for visual feedback)
+				let categories = [];
+				if (primaryCategory) categories.push(primaryCategory);
+				if (secondaryCategory) categories.push(secondaryCategory);
+				for (let i=0; i<categories.length; ++i) {
+					// eslint-disable-next-line no-await-in-loop
+					const keywords = await findTopKeywordsForCategory(originLL, radiusMiles, categories[i]);
+					renderKeywordList(categories[i], keywords);
+				}
 				setStatus('Done.', false);
+
 			} catch (e) {
 				console.error(e);
 				setStatus('Failed. See console for details.');
