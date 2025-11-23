@@ -320,11 +320,32 @@ Wexford, PA"></textarea>
 	</main>
 
 	<script>
-		// ---[ Utility & Main Logic ]---
-		const LEAD_INTENT_KEYWORDS = [
-			'near me', 'emergency', 'repair', 'service', 'installation', '24 hour', 'same day',
-			'cheap', 'quote', 'call', 'fix', 'cost', 'estimate', 'replacement', 'open now', 'free', 'best'
-		];
+		const CATEGORY_MODIFIERS = {
+			'massage therapist': [
+				"near me", "open now", "best", "deep tissue", "sports", "couples", "Swedish", "Thai", "reflexology",
+				"prenatal", "relaxation", "therapeutic", "hours", "reviews", "prices"
+			],
+			'plumber': [
+				"near me", "emergency", "repair", "service", "drain cleaning", "water heater", "leak repair",
+				"best", "cost", "reviews", "open now", "installation", "quote"
+			],
+			'electrician': [
+				"near me", "emergency", "repair", "service", "outlet install", "lighting", "panel upgrade", "best", "cost", "reviews", "open now", "quote"
+			]
+			// Add more as your tool expands!
+		};
+
+		function normalizeCategory(cat) {
+			return cat.toLowerCase().replace(/s$/, '').trim();
+		}
+		function getRelevantKeywordsForCategory(category) {
+			const base = normalizeCategory(category);
+			let modifiers = CATEGORY_MODIFIERS[base] || ["near me", "best", "reviews", "prices", "open now"];
+			let keywords = modifiers.map(m => `${base} ${m}`);
+			keywords.unshift(`best ${base}`);
+			keywords.unshift(`${base} near me`);
+			return keywords;
+		}
 
 		const toRad = d => d * Math.PI / 180;
 		function haversineMiles(lat1, lon1, lat2, lon2) {
@@ -457,7 +478,6 @@ Wexford, PA"></textarea>
 
 			const projLabel = () => {
 				if (!mapInstance || !mapInstance.getProjection || !radiusLabelEl) return;
-				const scale = Math.pow(2, mapInstance.getZoom());
 				const proj = mapInstance.getProjection();
 				if (!proj) return;
 				const bounds = mapInstance.getBounds();
@@ -549,15 +569,6 @@ Wexford, PA"></textarea>
 			}
 		}
 
-		function getLeadGenKeywordsForCategory(category) {
-			let cat = category.toLowerCase().trim();
-			let keywords = LEAD_INTENT_KEYWORDS.map(k =>
-				cat + ' ' + k
-			);
-			keywords.push(cat + ' near me');
-			return keywords;
-		}
-
 		function getSearchVolumeForKeyword(originLL, radiusMiles, keyword) {
 			return new Promise(resolve => {
 				const serviceObj = new google.maps.places.PlacesService(map);
@@ -576,7 +587,7 @@ Wexford, PA"></textarea>
 		}
 
 		async function findLeadGeneratingKeywords(originLL, radiusMiles, category) {
-			const keywords = getLeadGenKeywordsForCategory(category);
+			const keywords = getRelevantKeywordsForCategory(category);
 			const results = [];
 			for (let k of keywords) {
 				const vol = await getSearchVolumeForKeyword(originLL, radiusMiles, k);
