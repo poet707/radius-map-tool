@@ -232,7 +232,13 @@
 		.keyword-list {
 			margin: 0 0 8px 0;
 			padding: 0;
-			list-style: inside disc;
+			list-style: none;
+		}
+		.keyword-list li {
+			display: flex;
+			align-items: center;
+			gap: 8px;
+			margin-bottom: 4px;
 		}
 	</style>
 </head>
@@ -307,14 +313,19 @@ Wexford, PA"></textarea>
 			</div>
 			<!-- Keyword results section -->
 			<div id="keywordResults" style="display:none">
-				<h4 style="margin-top:0;">Top 5 Keywords per Category (within radius)</h4>
+				<h4 style="margin-top:0;">Top 5 Lead Generating Keywords per Category (with local search volume)</h4>
 				<div id="keywordCategoryResults"></div>
 			</div>
 		</section>
 	</main>
 
 	<script>
-		// Math helpers
+		// ---[ Utility & Main Logic ]---
+		const LEAD_INTENT_KEYWORDS = [
+			'near me', 'emergency', 'repair', 'service', 'installation', '24 hour', 'same day',
+			'cheap', 'quote', 'call', 'fix', 'cost', 'estimate', 'replacement', 'open now', 'free', 'best'
+		];
+
 		const toRad = d => d * Math.PI / 180;
 		function haversineMiles(lat1, lon1, lat2, lon2) {
 			const R = 3958.7613;
@@ -344,6 +355,7 @@ Wexford, PA"></textarea>
 		let map, originMarker, radiusCircle;
 		let markers = [];
 		let radiusLabelEl = null;
+		let currentKeywordsState = {};
 
 		function initMap() {
 			map = new google.maps.Map(document.getElementById('map'), {
@@ -386,6 +398,7 @@ Wexford, PA"></textarea>
 			summaryBadge.className = 'badge';
 			keywordResultsEl.style.display = 'none';
 			keywordCategoryResultsEl.innerHTML = '';
+			currentKeywordsState = {};
 		}
 
 		clearBtn.addEventListener('click', () => {
@@ -536,14 +549,22 @@ Wexford, PA"></textarea>
 			}
 		}
 
-		function getServiceVolumeForCity(city, service) {
+		function getLeadGenKeywordsForCategory(category) {
+			let cat = category.toLowerCase().trim();
+			let keywords = LEAD_INTENT_KEYWORDS.map(k =>
+				cat + ' ' + k
+			);
+			keywords.push(cat + ' near me');
+			return keywords;
+		}
+
+		function getSearchVolumeForKeyword(originLL, radiusMiles, keyword) {
 			return new Promise(resolve => {
 				const serviceObj = new google.maps.places.PlacesService(map);
-				const query = `${service} in ${city.formatted}`;
 				serviceObj.textSearch({
-					location: { lat: city.lat, lng: city.lng },
-					radius: 10000,
-					query: query
+					location: { lat: originLL.lat, lng: originLL.lng },
+					radius: radiusMiles * 1609.344,
+					query: keyword
 				}, (svcResults, svcStatus) => {
 					if (svcStatus === google.maps.places.PlacesServiceStatus.OK && svcResults) {
 						resolve(svcResults.length);
@@ -554,41 +575,86 @@ Wexford, PA"></textarea>
 			});
 		}
 
-		// --- NEW: Find top 5 keywords for each category using Places API ---
-		async function findTopKeywordsForCategory(originLL, radiusMiles, category) {
-			return new Promise((resolve) => {
-				if (!category) return resolve([]);
-				const serviceObj = new google.maps.places.PlacesService(map);
-				// Google Places type search is not true "keywords", but we can tally terms in name/types.
-				let keywords = {};
-				const query = category;
-				serviceObj.textSearch({
-					location: { lat: originLL.lat, lng: originLL.lng },
-					radius: radiusMiles * 1609.344,
-					query: query
-				}, (svcResults, svcStatus, pagination) => {
-					if (svcStatus !== google.maps.places.PlacesServiceStatus.OK || !svcResults) return resolve([]);
-					for (const place of svcResults) {
-						// Collect from name, types, and business description (if available)
-						(place.name.split(/[\s,-]+/) || []).forEach(k => {
-							k = k.trim().toLowerCase();
-							if (k.length > 2 && !["the", "and", "for", "to", "from", "with", "at", "by", "of", "in", "on", "llc", "inc"].includes(k))
-								keywords[k] = (keywords[k] || 0) + 1;
-						});
-						if (Array.isArray(place.types)) {
-							place.types.forEach(type => {
-								if (type.length > 2) keywords[type.toLowerCase()] = (keywords[type.toLowerCase()] || 0) + 1;
-							});
-						}
-						// Can extend to user_ratings_total etc if desired
-					}
-					// Sort and return top 5
-					const sorted = Object.entries(keywords).sort((a,b)=>b[1]-a[1]).map(([key, _])=>key);
-					resolve(sorted.slice(0,5));
-				});
-			});
+		async function findLeadGeneratingKeywords(originLL, radiusMiles, category) {
+			const keywords = getLeadGenKeywordsForCategory(category);
+			const results = [];
+			for (let k of keywords) {
+				const vol = await getSearchVolumeForKeyword(originLL, radiusMiles, k);
+				if (vol > 0) {
+					results.push({ keyword: k, volume: vol, checked: false });
+				}
+			}
+			results.sort((a, b) => b.volume - a.volume);
+			return results.slice(0, 5);
 		}
-		// ---
+
+		function renderKeywordList(category, keywords, radiusMiles) {
+			const catEl = document.createElement('div');
+			catEl.className = 'keyword-category';
+			catEl.textContent = `Best Lead Generating Keywords for "${category}"`;
+			const ul = document.createElement('ul');
+			ul.className = 'keyword-list';
+			if (keywords.length === 0) {
+				const li = document.createElement('li');
+				li.textContent = 'No high-intent keywords found (try refining your category)';
+				ul.appendChild(li);
+			} else {
+				keywords.forEach((kobj, idx) => {
+					const li = document.createElement('li');
+					let checkbox = document.createElement('input');
+					checkbox.type = "checkbox";
+					checkbox.checked = (kobj.checked === true);
+					checkbox.onchange = (e) => {
+						currentKeywordsState[category][idx].checked = e.target.checked;
+					};
+					let label = document.createElement('span');
+					label.textContent = `${kobj.keyword} (${kobj.volume} results within ${radiusMiles} mi)`;
+					li.appendChild(checkbox);
+					li.appendChild(label);
+					ul.appendChild(li);
+				});
+			}
+			return [catEl, ul];
+		}
+
+		async function loadAllKeywords(originLL, radiusMiles, categories, recompute) {
+			currentKeywordsState = currentKeywordsState || {};
+			keywordCategoryResultsEl.innerHTML = '';
+			for (let i = 0; i < categories.length; ++i) {
+				const category = categories[i];
+				let catState = currentKeywordsState[category];
+				let newKeywords = [];
+				if (!catState || recompute) {
+					let locked = (catState || []).filter(kobj => kobj.checked);
+					let n_needed = 5 - locked.length;
+					let newList = [];
+					if (n_needed > 0) {
+						const allGen = await findLeadGeneratingKeywords(originLL, radiusMiles, category);
+						let lockedSet = new Set(locked.map(k => k.keyword));
+						newList = allGen.filter(k => !lockedSet.has(k.keyword)).slice(0, n_needed)
+							.map(k => ({ ...k, checked: false }));
+					}
+					newKeywords = [...locked, ...newList];
+				} else {
+					newKeywords = catState;
+				}
+				currentKeywordsState[category] = newKeywords;
+				const elems = renderKeywordList(category, newKeywords, radiusMiles);
+				keywordCategoryResultsEl.appendChild(elems[0]);
+				keywordCategoryResultsEl.appendChild(elems[1]);
+			}
+			let refreshBtn = document.createElement('button');
+			refreshBtn.textContent = '🔄 Refresh Unchecked Keywords';
+			refreshBtn.className = 'secondary';
+			refreshBtn.style.marginTop = "12px";
+			refreshBtn.onclick = async () => {
+				setStatus("Refreshing keywords…", true);
+				await loadAllKeywords(originLL, radiusMiles, categories, true);
+				setStatus("Done.", false);
+			};
+			refreshBtn.id = "lead-keyword-refresh-btn";
+			keywordCategoryResultsEl.appendChild(refreshBtn);
+		}
 
 		runBtn.addEventListener('click', async () => {
 			const originAddr = originEl.value.trim();
@@ -706,7 +772,7 @@ Wexford, PA"></textarea>
 								const searchCat = primaryCategory && secondaryCategory
 									? (primaryCategory + ' ' + secondaryCategory)
 									: (primaryCategory || secondaryCategory || '');
-								Promise.all(candidates.map(c => getServiceVolumeForCity(c, searchCat)))
+								Promise.all(candidates.map(c => getSearchVolumeForKeyword({lat: c.lat, lng: c.lng}, 10, searchCat)))
 									.then(volumes => {
 										let maxIdx = 0;
 										for (let i = 1; i < volumes.length; ++i) {
@@ -735,43 +801,13 @@ Wexford, PA"></textarea>
 
 				totalsCell.textContent = `Total processed: ${results.length}. Radius: ${radiusMiles} miles. Origin: ${origin.formatted}.`;
 
-				// ------- NEW KEYWORD LOGIC --------
-				let catKeywords = [];
-				keywordCategoryResultsEl.innerHTML = '';
-				keywordResultsEl.style.display = 'block';
-				setStatus('Finding top keywords…', true);
-
-				// Helper to render category and keywords
-				function renderKeywordList(category, keywords) {
-					const catEl = document.createElement('div');
-					catEl.className = 'keyword-category';
-					catEl.textContent = category;
-					const ul = document.createElement('ul');
-					ul.className = 'keyword-list';
-					if (keywords.length === 0) {
-						const li = document.createElement('li');
-						li.textContent = 'No keywords found (try a broader category or location)';
-						ul.appendChild(li);
-					} else {
-						keywords.forEach(k => {
-							const li = document.createElement('li');
-							li.textContent = k;
-							ul.appendChild(li);
-						});
-					}
-					keywordCategoryResultsEl.appendChild(catEl);
-					keywordCategoryResultsEl.appendChild(ul);
-				}
-
-				// Process (sequential for visual feedback)
+				// ------- KEYWORDS LOGIC WITH CHECKBOX AND REFRESH --------
 				let categories = [];
 				if (primaryCategory) categories.push(primaryCategory);
 				if (secondaryCategory) categories.push(secondaryCategory);
-				for (let i=0; i<categories.length; ++i) {
-					// eslint-disable-next-line no-await-in-loop
-					const keywords = await findTopKeywordsForCategory(originLL, radiusMiles, categories[i]);
-					renderKeywordList(categories[i], keywords);
-				}
+				keywordResultsEl.style.display = 'block';
+				setStatus('Finding best lead-generating keywords…', true);
+				await loadAllKeywords(originLL, radiusMiles, categories, false);
 				setStatus('Done.', false);
 
 			} catch (e) {
